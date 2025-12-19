@@ -61,10 +61,16 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 class Agent(nn.Module):
     def __init__(self, env):
         super().__init__()
-        self.actor = layer_init(nn.Linear(np.array(env.observation_space.shape).prod(), env.action_space.n), std=0.01)
-    
+        obs_dim = np.array(env.observation_space.shape).prod()
+        hidden = 64
+        action_dim = env.action_space.n #Discrete Action space
+        self.actor = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, hidden), std=0.01),
+            layer_init(nn.Linear(hidden, action_dim), std=0.01)
+        )
+
     def get_action(self, obs, action=None):
-        logits = self.actor(obs)
+        logits = self.actor.forward(obs)
         policyprobs = Categorical(logits=logits)
         if action is None:
             action = policyprobs.sample()
