@@ -66,6 +66,7 @@ class Agent(nn.Module):
         action_dim = env.action_space.n #Discrete Action space
         self.actor = nn.Sequential(
             layer_init(nn.Linear(obs_dim, hidden), std=0.01),
+            nn.ReLU(),
             layer_init(nn.Linear(hidden, action_dim), std=0.01)
         )
 
@@ -224,4 +225,5 @@ if __name__ == "__main__":
         plt.show()
 
     env.close()
+
 
