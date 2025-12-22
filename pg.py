@@ -1,33 +1,50 @@
 # Vanilla Policy Gradient (REINFORCE) implementation for discrete action spaces
 # Github: https://github.com/nkxv/ReinforcementLearning/
+# Example usage: python pg.py --verbose --plot
 
 import gymnasium as gym
+
+from torch.distributions.categorical import Categorical
+
+import pandas as pd
+
+
 import torch.nn as nn
 import numpy as np
 import torch
-from torch.distributions.categorical import Categorical
+
 import torch.optim as optim
 import csv
 import matplotlib.pyplot as plt
-import pandas as pd
-from dataclasses import dataclass
 
-@dataclass
-class Config:
-    env_id: str = "CartPole-v1"
-    learning_rate: float = 3e-4
-    gamma: float = 0.99
-    n_epochs: int = 200
-    n_rollout_steps: int = 1500
-    seed: int = 1
-    plot: bool = True
-    outputfile: str = "output.csv"
-    eval: bool = True
-    eval_episodes: int = 10
+import torch.distributions as D
+import argparse
+import time
+import os
 
 
-def plot():
-    filepath = "output.csv"
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp-name", type=str, default="MyPPO")
+    parser.add_argument("--env-id", type=str, default="CartPole-v1")
+    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--n-epochs", type=int, default=50)
+    parser.add_argument("--seed", type=int, default=99)
+    parser.add_argument('--n-rollout-steps', type=int, default=2000)
+    parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--verbose", action="store_true", default=False)
+    parser.add_argument("--logdir", type=str, default="PPOoutputfolder")
+    parser.add_argument("--no-eval", action="store_true", default=False)
+    parser.add_argument("--eval-episodes", type=int, default=10)
+    parser.add_argument("--log-std-init", type=float, default=0)
+    return parser.parse_args()
+
+
+
+
+def plot(filepath):
+
     df = pd.read_csv(filepath)
     
     ax1 = plt.subplot(311)
@@ -70,6 +87,7 @@ class Agent(nn.Module):
             layer_init(nn.Linear(hidden, action_dim), std=0.01)
         )
 
+
     def get_action(self, obs, action=None):
         logits = self.actor.forward(obs)
         policyprobs = Categorical(logits=logits)
@@ -95,20 +113,24 @@ class Agent(nn.Module):
         return np.mean(returns)
 
 if __name__ == "__main__":
+    Config = parse_args()
 
-    
+    run_id = f"seed{Config.seed}_gamma{Config.gamma}_lr{Config.lr}_rollout-steps{Config.n_rollout_steps}_log-std-init{Config.log_std_init}_{int(time.time())}"
+    outputfilepath = os.path.join(Config.logdir, f"{Config.exp_name}__{run_id}.csv")
+    os.makedirs(Config.logdir, exist_ok=True)
+
     env = gym.make(Config.env_id)
     
     globalstep = 0
     n_epochs = Config.n_epochs
     n_rollout_steps = Config.n_rollout_steps
-    learning_rate = Config.learning_rate
+
     agent = Agent(env)
-    optimizer = optim.Adam(agent.parameters(), lr=learning_rate, eps=1e-5)
+    optimizer = optim.Adam(agent.parameters(), lr=Config.lr, eps=1e-5)
 
 
 
-    with open(Config.outputfile, "w", newline="") as f:
+    with open(outputfilepath, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(['Global Step', 'Episodic Return', 'Immediate Return'])
 
@@ -136,7 +158,7 @@ if __name__ == "__main__":
                 observations_list[t] = observation
                 #action from policy
                 action, _= agent.get_action(observation)
-
+                
                 # step (transition) through the environment with the action
                 # receiving the next observation, reward and if the episode has terminated or truncated
                 observation, reward, terminated, truncated, info = env.step(action.cpu().numpy())
@@ -169,11 +191,12 @@ if __name__ == "__main__":
             #End of Rollout
 
 
-            if Config.eval and epoch % 10 == 0:
+            if not Config.no_eval:
                 eval_ret = agent.eval(env, episodes=Config.eval_episodes)
                 eval_steps.append(globalstep)
                 eval_returns.append(eval_ret)
-                print(f"[Eval] Step {globalstep}: Avg Return = {eval_ret:.1f}")
+                if Config.verbose:
+                    print(f"[Eval] Step {globalstep}: Avg Return = {eval_ret:.1f}")
 
             gamma = .99 #Discount Factor
 
@@ -213,9 +236,10 @@ if __name__ == "__main__":
             optimizer.step()
 
 
+    f.close()
 
     if Config.plot:
-        plot()
+        plot(filepath=outputfilepath)
         plt.figure(figsize=(8, 4))
         plt.plot(eval_steps, eval_returns, marker='o')
         plt.xlabel("Global Timestep")
@@ -225,5 +249,4 @@ if __name__ == "__main__":
         plt.show()
 
     env.close()
-
 
