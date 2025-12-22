@@ -1,3 +1,3 @@
 # ReinforcementLearning
 
-A Directory for my own RL implementations
+An ongoing directory for my own RL implementations
