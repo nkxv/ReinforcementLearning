@@ -1,4 +1,4 @@
-# Discrete PPO implementation with Monte Carlo Advantage
+# Discrete PPO implementation with Monte Carlo Advantage and value clipping
 # Github: https://github.com/nkxv/ReinforcementLearning/
 # Example Command: python ppo.py --plot --verbose
 
@@ -27,13 +27,15 @@ def parse_args():
     parser.add_argument("--env-id", type=str, default="CartPole-v1")
     parser.add_argument("--seed", type=int, default=99)
 
-    parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--lr", type=float, default=2.5e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
-    parser.add_argument("--clip-coef", type=float, default=0.2)
+    parser.add_argument("--clip-coef", type=float, default=0.5)
     parser.add_argument("--log-std-init", type=float, default=0) #continuous action spaces
-    parser.add_argument("--n-epochs", type=int, default=50)
-    parser.add_argument("--n-rollout-steps", type=int, default=2000)
-    parser.add_argument("--minibatch-size", type=int, default=64)
+    parser.add_argument("--n-epochs", type=int, default=20)
+    parser.add_argument("--n-rollout-steps", type=int, default=1400)
+    parser.add_argument("--minibatch-size", type=int, default=4)
+    parser.add_argument("--value-clip", action="store_false", default=False)
+    parser.add_argument("--value-clip-coef", type=float, default=0.5)
 
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--verbose", action="store_true", default=False)
@@ -241,18 +243,28 @@ if __name__ == "__main__":
             advantages = returns - returns.mean()
             
             with torch.no_grad():
-                _, logprobs, _= agent.get_action_and_value(obs_batch, act_batch)
+                _, logprobs, values= agent.get_action_and_value(obs_batch, act_batch)
             for start in range(0, T, Config.minibatch_size):
                 end = start + Config.minibatch_size
                 if end > T: end = T #to avoid indexing out of batch
-                _, new_logprobs, _ = agent.get_action_and_value(obs_batch[start:end], act_batch[start:end]) 
+                _, new_logprobs, new_values = agent.get_action_and_value(obs_batch[start:end], act_batch[start:end]) 
 
                 logratio = new_logprobs - logprobs[start:end]
                 ratio = logratio.exp()
 
                 loss1 = -ratio * advantages[start:end]
-                loss2 = -torch.clamp(ratio, 1-clip_coef, 1+clip_coef)
+                loss2 = -torch.clamp(ratio, clip_coef, clip_coef)
                 loss = torch.max(loss1, loss2).mean()
+
+                if Config.value_clip:
+                    v_loss1 = (new_values-values[start:end])**2
+                    v_clipped = values[start:end] + torch.clamp(new_values - values[start:end], Config.value_clip_coef, Config.value_clip_coef)
+                    v_loss2 = (v_clipped - values[start:end])**2
+                    value_loss = 0.5 * (torch.max(v_loss1, v_loss2)).mean()
+                else:
+                    value_loss = 0.5 * ((new_values - values[start:end])**2).mean()
+
+                loss += value_loss
 
                 optimizer.zero_grad()
                 loss.backward()
